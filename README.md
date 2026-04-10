@@ -133,41 +133,33 @@ Options:
 ## CLI
 
 ```sh
-bun run ddj.ts [command] [file] [flags]
+ddj [file] [flags]
 ```
 
-Or install globally:
+Input is auto-detected — JSON is encoded to DDJ, DDJ is passed through. Reads from stdin if no file given.
 
 ```sh
-bun link
-```
-
-### Commands
-
-```sh
-ddj encode data.json        # JSON → dd-json (pretty-printed to terminal)
-ddj encode data.json -c     # JSON → dd-json (compact, for files/pipes)
-ddj decode data.ddj          # dd-json → JSON
-ddj format data.ddj          # Pretty-print with syntax highlighting
-ddj format data.json         # Works on plain JSON too
-```
-
-Without a command, `ddj` auto-detects: JSON input is encoded, dd-json input is formatted.
-
-```sh
-cat data.json | ddj          # Pipe JSON in, get dd-json out
-cat data.ddj | ddj           # Pipe dd-json in, get pretty-printed output
+ddj data.json                # JSON → DDJ (multiline + color on terminal)
+ddj data.json -s             # JSON → DDJ (single-line + color on terminal)
+ddj data.ddj -J              # DDJ → JSON
+cat data.json | ddj          # pipe: JSON → DDJ (single-line, no color)
+cat data.ddj | ddj -J        # pipe: DDJ → JSON
+ddj data.ddj -c | less -R   # force color into pager
 ```
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `-c`, `--compact` | Compact output (no formatting) |
-| `-C`, `--color` | Force color output (e.g. `ddj format data.ddj -C \| less -R`) |
-| `-n`, `--no-color` | Disable syntax highlighting |
-| `-t`, `--theme NAME` | Inkglow theme name (default: Inkglow) |
-| `-h`, `--help` | Show help |
+| Short | Long | Description |
+|-------|------|-------------|
+| `-J` | `--json` | Output as JSON (default: DDJ) |
+| `-s` | `--single-line` | Force compact single-line output |
+| `-m` | `--multiline` | Force multiline indented output |
+| `-c` | `--color` | Force color output |
+| `-n` | `--no-color` | Disable color |
+| `-t` | `--theme` | Inkglow theme name (default: Inkglow) |
+| `-h` | `--help` | Show help |
+
+Defaults: TTY → multiline + color, pipe → single-line + no color.
 
 ### Syntax highlighting
 
