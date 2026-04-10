@@ -145,7 +145,8 @@ export function format(input: string, { theme, indent = 2, colorize }: { theme?:
   function skip(): void {
     while (pos < input.length && input.charCodeAt(pos) <= 0x20) pos++;
   }
-  function nl(): void { out += "\n" + tab.repeat(depth); }
+  const compact = indent === 0;
+  function nl(): void { if (!compact) out += "\n" + tab.repeat(depth); }
 
   function token(isKey: boolean): string {
     skip();
@@ -230,7 +231,7 @@ export function format(input: string, { theme, indent = 2, colorize }: { theme?:
         nl();
         out += token(true);
         skip(); pos++; skip();
-        out += c("punctuation", ": ");
+        out += c("punctuation", compact ? ":" : ": ");
         writeVal(false);
         skip();
         while (input.charCodeAt(pos) === 0x2C) {
@@ -239,7 +240,7 @@ export function format(input: string, { theme, indent = 2, colorize }: { theme?:
           nl();
           out += token(true);
           skip(); pos++; skip();
-          out += c("punctuation", ": ");
+          out += c("punctuation", compact ? ":" : ": ");
           writeVal(false);
           skip();
         }
@@ -255,7 +256,7 @@ export function format(input: string, { theme, indent = 2, colorize }: { theme?:
   }
 
   writeVal(false);
-  out += "\n";
+  if (!compact) out += "\n";
   return out;
 }
 

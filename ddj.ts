@@ -3,108 +3,141 @@ import { encode, decode, format } from "./dd-json";
 
 let getTheme: ((name: string) => any) | undefined;
 let colorize: ((theme: any, role: string, text: string) => string) | undefined;
+let toAnsi256: ((hex: string) => number) | undefined;
 try {
   const inkglow = await import("inkglow");
   getTheme = inkglow.getTheme;
   colorize = inkglow.colorize;
+  toAnsi256 = inkglow.toAnsi256;
 } catch {}
 
-const args = process.argv.slice(2);
-const flags = new Set(args.filter(a => a.startsWith("-")));
-const positional = args.filter(a => !a.startsWith("-"));
+// --- arg parsing ---
 
-const cmd = positional[0];
-const file = positional[1];
+const args = process.argv.slice(2);
+const flags: Record<string, boolean> = {};
+let file: string | undefined;
+let outFile: string | undefined;
+let themeName = "Inkglow";
+
+const shortFlags: Record<string, string> = {
+  s: "single", m: "multiline", c: "color", n: "noColor", J: "json", h: "help",
+};
+const shortWithArg: Record<string, true> = { t: true, o: true };
+
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (a === "--theme") { themeName = args[++i] || "Inkglow"; continue; }
+  if (a === "--output") { outFile = args[++i]; continue; }
+  if (a === "--single-line") { flags.single = true; continue; }
+  if (a === "--multiline") { flags.multiline = true; continue; }
+  if (a === "--color") { flags.color = true; continue; }
+  if (a === "--no-color") { flags.noColor = true; continue; }
+  if (a === "--json") { flags.json = true; continue; }
+  if (a === "--help") { flags.help = true; continue; }
+  if (a.startsWith("-") && !a.startsWith("--")) {
+    // Combined short flags: -Js, -sc, -to out.ddj
+    const chars = a.slice(1);
+    for (let j = 0; j < chars.length; j++) {
+      const ch = chars[j];
+      if (shortWithArg[ch]) {
+        const val = chars.slice(j + 1) || args[++i];
+        if (ch === "t") themeName = val || "Inkglow";
+        if (ch === "o") outFile = val;
+        break;
+      }
+      const flag = shortFlags[ch];
+      if (flag) { flags[flag] = true; continue; }
+      process.stderr.write(`Unknown flag: -${ch}\n`); process.exit(1);
+    }
+    continue;
+  }
+  if (a.startsWith("-")) { process.stderr.write(`Unknown flag: ${a}\n`); process.exit(1); }
+  file = a;
+}
 
 const usage = `ddj — deduplicated JSON
 
-Usage:
-  ddj encode [file]       Encode JSON → dd-json (compact)
-  ddj decode [file]       Decode dd-json → JSON
-  ddj format [file]       Pretty-print with syntax highlighting
+Usage:  ddj [file] [flags]
+
+Input is auto-detected (JSON or DDJ). Reads from stdin if no file given.
 
 Flags:
-  -c, --compact           Compact output (no formatting)
-  -C, --color             Force color output (for piping to less -R)
-  -n, --no-color          Disable syntax highlighting
-  -t, --theme <name>      Inkglow theme (default: Inkglow)
+  -J, --json          Output as JSON (default: DDJ)
+  -o, --output FILE   Write output to file
+  -s, --single-line   Force compact single-line output
+  -m, --multiline     Force multiline indented output
+  -c, --color         Force color output
+  -n, --no-color      Disable color
+  -t, --theme NAME    Inkglow theme name (default: Inkglow)
+  -h, --help          Show this help
 
-Reads from stdin if no file is given.
-Accepts .json, .ddj, or piped input for all commands.
+Defaults: interactive terminal → multiline + color
+          piped output        → single-line, no color
+
+Examples:
+  ddj data.json                  Encode JSON to DDJ (pretty + color)
+  ddj data.json -s               Encode, single-line + color
+  ddj data.json -o data.ddj       Encode to file (single-line, no color)
+  ddj data.json > data.ddj       Same, using shell redirect
+  ddj data.ddj -J                Decode DDJ back to JSON (pretty)
+  ddj data.ddj -J -s             Decode to compact JSON
+  ddj data.ddj -J > data.json    Decode to file (compact)
+  cat data.json | ddj            Pipe JSON in, DDJ out
+  cat data.ddj | ddj -J          Pipe DDJ in, JSON out
+  ddj data.ddj -c | less -R     Color output in pager
+  ddj data.ddj -m > pretty.ddj   Force multiline to file
+  ddj data.json -n               No color on terminal
+  ddj data.json -t "Inkglow Frost"   Use a different theme
 `;
 
-if (!cmd || flags.has("-h") || flags.has("--help")) {
-  process.stderr.write(usage);
-  process.exit(cmd ? 0 : 1);
-}
+import { fstatSync } from "fs";
+const stdinIsInteractive = !file && !fstatSync(0).isFIFO();
+if (flags.help || stdinIsInteractive) { process.stderr.write(usage); process.exit(flags.help ? 0 : 1); }
+
+// --- resolve defaults ---
+
+const isInteractiveOut = outFile ? false : process.stdout.isTTY;
+const useColor = flags.noColor ? false : (flags.color || isInteractiveOut) && !!getTheme;
+const useSingleLine = flags.single ? true : flags.multiline ? false : !isInteractiveOut;
+
+// --- read input ---
 
 const input = file ? await Bun.file(file).text() : await readStdin();
-const forceColor = flags.has("--color") || flags.has("-C");
-const useColor = (forceColor || (process.stdout.isTTY && !flags.has("-n") && !flags.has("--no-color"))) && !!getTheme;
-const compact = flags.has("-c") || flags.has("--compact");
 
-const themeName = (() => {
-  for (let i = 0; i < args.length; i++) {
-    if ((args[i] === "-t" || args[i] === "--theme") && args[i + 1]) return args[i + 1];
+// --- auto-detect input format ---
+
+let data: unknown;
+let inputIsJson = false;
+try {
+  data = JSON.parse(input);
+  inputIsJson = true;
+} catch {
+  data = decode(input);
+}
+
+// --- output ---
+
+function write(s: string): void {
+  if (outFile) Bun.write(outFile, s);
+  else process.stdout.write(s);
+}
+
+const raw = flags.json ? JSON.stringify(data) : encode(data);
+if (!useColor && useSingleLine) {
+  write(raw + "\n");
+} else {
+  const theme = useColor ? getTheme!(themeName) : undefined;
+  const out = format(raw, { theme, colorize, indent: useSingleLine ? 0 : 2 });
+  if (theme && toAnsi256) {
+    const bg = `\x1b[48;5;${toAnsi256(theme.ui.background)}m`;
+    // Replace every reset with reset+bg so background persists across tokens
+    const colored = bg + out.replaceAll("\x1b[0m", "\x1b[0m" + bg);
+    // Use erase-to-end-of-line (\x1b[K) so background fills the full terminal width
+    const eol = "\x1b[K";
+    write(bg + eol + "\n" + colored.replaceAll("\n", eol + "\n" + bg) + eol + "\n" + bg + eol + "\x1b[0m\n");
+  } else {
+    write(out + "\n");
   }
-  return "Inkglow";
-})();
-
-switch (cmd) {
-  case "encode":
-  case "e": {
-    const data = JSON.parse(input);
-    const encoded = encode(data);
-    if (compact || !process.stdout.isTTY && !forceColor) {
-      process.stdout.write(encoded + "\n");
-    } else {
-      const theme = useColor ? getTheme(themeName) : undefined;
-      process.stdout.write(format(encoded, { theme, colorize }));
-    }
-    break;
-  }
-
-  case "decode":
-  case "d": {
-    const data = decode(input);
-    if (compact) {
-      process.stdout.write(JSON.stringify(data) + "\n");
-    } else {
-      process.stdout.write(JSON.stringify(data, null, 2) + "\n");
-    }
-    break;
-  }
-
-  case "format":
-  case "f": {
-    const theme = useColor ? getTheme(themeName) : undefined;
-    process.stdout.write(format(input, { theme, colorize }));
-    break;
-  }
-
-  default:
-    // No command — auto-detect: if input looks like JSON, encode it; otherwise format it
-    if (input.trimStart().startsWith("{") || input.trimStart().startsWith("[")) {
-      try {
-        // Try as JSON first
-        const data = JSON.parse(input);
-        const encoded = encode(data);
-        if (compact || !process.stdout.isTTY && !forceColor) {
-          process.stdout.write(encoded + "\n");
-        } else {
-          const theme = useColor ? getTheme(themeName) : undefined;
-          process.stdout.write(format(encoded, { theme, colorize }));
-        }
-      } catch {
-        // Not valid JSON — treat as dd-json, format it
-        const theme = useColor ? getTheme(themeName) : undefined;
-        process.stdout.write(format(input, { theme, colorize }));
-      }
-    } else {
-      // Has @ references or bare strings — dd-json, format it
-      const theme = useColor ? getTheme(themeName) : undefined;
-      process.stdout.write(format(input, { theme, colorize }));
-    }
 }
 
 async function readStdin(): Promise<string> {
