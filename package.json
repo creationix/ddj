@@ -1,10 +1,23 @@
 {
-  "dependencies": {
-    "@creationix/rex": "^0.4.1",
-    "jsonito": "^0.2.3",
-    "n2": "^0.7.3"
+  "name": "dd-json",
+  "version": "0.1.0",
+  "description": "Deduplicated JSON — a JSON superset with implicit-scope deduplication",
+  "type": "module",
+  "main": "dd-json.ts",
+  "bin": {
+    "ddj": "ddj.ts"
   },
-  "devDependencies": {
-    "bun-types": "^1.3.8"
-  }
+  "exports": {
+    ".": "./dd-json.ts"
+  },
+  "files": [
+    "dd-json.ts",
+    "ddj.ts"
+  ],
+  "optionalDependencies": {
+    "inkglow": "^0.2.0"
+  },
+  "license": "MIT",
+  "author": "Tim Caswell",
+  "repository": "creationix/dd-json"
 }
