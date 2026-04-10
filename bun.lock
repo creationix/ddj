@@ -1,0 +1,14 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "dependencies": {
+        "inkglow": "^0.2.0",
+      },
+    },
+  },
+  "packages": {
+    "inkglow": ["inkglow@0.2.0", "", {}, "sha512-winoyG91NqQ1b7GRjvTAIojvQUPggZjWdp94jCpA8BtC9VT7zZsffSFMk9FI881aBjsIdo2GVh67WL5GrD06qQ=="],
+  }
+}
