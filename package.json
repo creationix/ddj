@@ -1,6 +1,6 @@
 {
   "name": "dd-json",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Deduplicated JSON — a JSON superset with implicit-scope deduplication",
   "type": "module",
   "main": "dd-json.ts",
@@ -19,5 +19,5 @@
   },
   "license": "MIT",
   "author": "Tim Caswell",
-  "repository": "creationix/dd-json"
+  "repository": "creationix/ddj"
 }
