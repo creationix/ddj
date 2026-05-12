@@ -14,7 +14,7 @@ export function encode(rootValue: unknown): string {
   return out;
 
   function refLen(idx: number): number {
-    if (idx === 0) return 1;
+    if (idx === 0) return 2;
     let n = idx, len = 1;
     while (n > 0) { len++; n = Math.floor(n / 36); }
     return len;
@@ -84,13 +84,26 @@ export function encode(rootValue: unknown): string {
         return;
       }
       const inline = JSON.stringify(val);
+      // NaN/Infinity serialize to "null" which decodes as a keyword without
+      // a scope slot, so they must not be cached or referenced.
+      if (inline === "null") { out += "null"; return; }
       primCache.set(val, [nextIdx++, inline]);
       out += inline;
       return;
     }
 
-    // Arrays and objects
-    if (typeof val !== "object" || val === null) return;
+    if (typeof val === "bigint") {
+      throw new TypeError("Do not know how to serialize a BigInt");
+    }
+
+    // Match JSON.stringify: undefined/function/symbol become null
+    if (typeof val !== "object" || val === null) { out += "null"; return; }
+
+    // Match JSON.stringify: call toJSON if present (e.g. Date)
+    if ("toJSON" in val && typeof val.toJSON === "function") {
+      writeVal(val.toJSON());
+      return;
+    }
 
     const isArr = Array.isArray(val);
     const keys = isArr ? null : Object.keys(val);
@@ -109,10 +122,7 @@ export function encode(rootValue: unknown): string {
         for (let i = 0; i < len; i++) { if (i > 0) out += ","; writeVal(val[i]); }
         out += "]";
       } else {
-        const obj = val as Record<string, unknown>;
-        out += "{";
-        for (let i = 0; i < len; i++) { if (i > 0) out += ","; writeVal(keys![i]); out += ":"; writeVal(obj[keys![i]]); }
-        out += "}";
+        writeObj(val as Record<string, unknown>, keys!);
       }
       const myIdx = nextIdx++;
       if (!hashTable.has(h)) hashTable.set(h, { idx: myIdx, val: val as object });
@@ -122,13 +132,26 @@ export function encode(rootValue: unknown): string {
         for (let i = 0; i < len; i++) { if (i > 0) out += ","; writeVal(val[i]); }
         out += "]";
       } else {
-        const obj = val as Record<string, unknown>;
-        out += "{";
-        for (let i = 0; i < len; i++) { if (i > 0) out += ","; writeVal(keys![i]); out += ":"; writeVal(obj[keys![i]]); }
-        out += "}";
+        writeObj(val as Record<string, unknown>, keys!);
       }
       nextIdx++;
     }
+  }
+
+  // Match JSON.stringify: skip keys with undefined/function/symbol values
+  function writeObj(obj: Record<string, unknown>, keys: string[]): void {
+    out += "{";
+    let first = true;
+    for (const k of keys) {
+      const v = obj[k];
+      if (v === undefined || typeof v === "function" || typeof v === "symbol") continue;
+      if (!first) out += ",";
+      first = false;
+      writeVal(k);
+      out += ":";
+      writeVal(v);
+    }
+    out += "}";
   }
 }
 
@@ -300,7 +323,7 @@ export function decode(input: string): unknown {
     // quoted string
     if (ch === 0x22) {
       const start = pos++;
-      while (input.charCodeAt(pos) !== 0x22) {
+      while (pos < input.length && input.charCodeAt(pos) !== 0x22) {
         if (input.charCodeAt(pos) === 0x5C) pos++;
         pos++;
       }
@@ -315,7 +338,7 @@ export function decode(input: string): unknown {
       pos++;
       const arr: unknown[] = [];
       skip();
-      while (input.charCodeAt(pos) !== 0x5D) {
+      while (pos < input.length && input.charCodeAt(pos) !== 0x5D) {
         if (arr.length > 0) { pos++; skip(); }
         arr.push(readVal());
         skip();
@@ -331,7 +354,7 @@ export function decode(input: string): unknown {
       const obj: Record<string, unknown> = {};
       let count = 0;
       skip();
-      while (input.charCodeAt(pos) !== 0x7D) {
+      while (pos < input.length && input.charCodeAt(pos) !== 0x7D) {
         if (count++ > 0) { pos++; skip(); }
         const key = readVal() as string;
         skip(); pos++; skip();
